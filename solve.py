@@ -5,8 +5,10 @@ import cv2
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import tqdm
+from typing import List, Dict
+from numpy.typing import NDArray
 
-image_path = './pictures/scene13.png'  # 输入图像文件路径
+image_path = './pictures/scene18.jpg'  # 输入图像文件路径
 
 def is_mostly_solid_color(image, threshold=30, resize_size=(10, 10)):
     """
@@ -267,6 +269,93 @@ def board2img(board, highlight, dir_idx, size=64):
 
     return img
 
+#  region 移动位置图计算
+
+# 默认从左到右，计算向左的可移动距离.
+# 输入：
+# arr: 1D数组
+def caluculate_move_distance_by_line(arr:NDArray[np.int32]):
+    # print("A: ", arr)
+    result = arr.copy()
+    
+    cnt = 0
+    for i in range(arr.shape[0]):
+        val = arr[i]
+        pre_val = 0
+        if i > 0: pre_val = arr[i-1]
+        if pre_val >= 0 and val < 0:
+            cnt = 1
+        elif pre_val < 0 and val < 0:
+            cnt += 1
+        result[i] = cnt
+    # print("R: ", result)
+    return result
+
+# 测试
+# print(caluculate_move_distance_by_line(
+# np.array([-1, 0, 1, -1, -1, -1, -1, 0, -1])
+# # [1, 1, 1, 1, 2, 3, 4, 4, 1]
+# ))
+# print(caluculate_move_distance_by_line(
+# np.array([0, 0, 1, -1, -1, -1, -1, 0, 0])
+# # [0, 0, 0, 1, 2, 3, 4, 4, 4]
+# ))
+# print(caluculate_move_distance_by_line(
+# np.array([-1, 0, 1, -1, -1, -1, -1, 0, -1])
+# # [0, 0, 0, 1, 2, 3, 4, 4, 4]
+# ))
+
+# 输入：
+# arr: 2D数组
+# 输出：
+#    arr[:, :, 4]，在原有的形状基础上，增加了一个维度，用于存储四个方向的可移动距离。
+def calcaulate_move_distance_map(mat:NDArray[np.int32]):
+    assert( len(mat.shape) == 2 )
+    d1 = np.apply_along_axis(func1d=caluculate_move_distance_by_line, axis=0, arr=mat)
+    d2 = np.apply_along_axis(func1d=caluculate_move_distance_by_line, axis=1, arr=mat)
+    mat2 = np.flip(np.copy(mat))
+    d3 = np.apply_along_axis(func1d=caluculate_move_distance_by_line, axis=0, arr=mat2)
+    d4 = np.apply_along_axis(func1d=caluculate_move_distance_by_line, axis=1, arr=mat2)
+    d3 = np.flip(d3); d4 = np.flip(d4)
+    return np.stack([d1, d2, d3, d4], axis = 0)
+
+# 测试
+mat = np.array([
+    [-1, 0, 1, -1, -1, -1, -1, 0, -1],
+    [0, 0, 1, -1, -1, -1, -1, 0, 0],
+    [0, -1, 0, -1, 0, -1, -1, -1, 0],
+    [0, -1, 0, 0, 0, -1, -1, -1, 0],
+    [0, -1, 0, 0, 0, -1, -1, -1, 0],
+])
+result = calcaulate_move_distance_map(mat)
+print(result)
+'''
+向上移动
+[[[1 0 0 1 1 1 1 0 1]
+  [1 0 0 2 2 2 2 0 1]
+  [1 1 0 3 2 3 3 1 1]
+  [1 2 0 3 2 4 4 2 1]
+  [1 3 0 3 2 5 5 3 1]]
+向左移动
+ [[1 1 1 1 2 3 4 4 1]
+  [0 0 0 1 2 3 4 4 4]
+  [0 1 1 1 1 1 2 3 3]
+  [0 1 1 1 1 1 2 3 3]
+  [0 1 1 1 1 1 2 3 3]]
+向下移动
+ [[1 3 0 3 2 5 5 3 1]
+  [0 3 0 2 1 4 4 3 0]
+  [0 3 0 1 0 3 3 3 0]
+  [0 2 0 0 0 2 2 2 0]
+  [0 1 0 0 0 1 1 1 0]]
+向右移动
+ [[1 4 4 4 3 2 1 1 1]
+  [4 4 4 4 3 2 1 0 0]
+  [1 1 1 1 3 3 2 1 0]
+  [1 1 3 3 3 3 2 1 0]
+  [1 1 3 3 3 3 2 1 0]]]
+'''
+
 # 消去两个方块的条件：
 # 1. 一个方块的上下左右有相同的方块
 # 2. 一个方块往上下左右移动后的位置的上下左右有相同的方块
@@ -292,13 +381,14 @@ def game_start(matrix):
         if steps >= total_steps:
             return True # 找到解决方案
         
-        # 将当前状态转换为可哈希的类型（例如元组）
+        # 将当前状态转换为可哈希的类型
         state = tuple(map(tuple, matrix))
 
         if state in visited:
             return False  # 已经访问过，剪枝
         visited.add(state)
 
+        # 遍历所有方块，尝试所有可能的移动
         for x in range(len(matrix)):
             for y in range(len(matrix[0])):
                 if matrix[x][y] == -1:
@@ -307,10 +397,12 @@ def game_start(matrix):
                     block = matrix[x][y]
                     if block == -1:
                         break
+                    # 迷惑行为：返回两个值，只有一个是有用的。
                     distance = get_direction_distance(x, y, matrix, direction)
 
                     # 保存当前状态
                     board_copy = [row[:] for row in matrix]
+                    # TODO：这里有BUG，一个方向上的移动可能产生多个解，这里只记录了一个解
                     same_block = try_move_block(matrix, x, y, distance[0], distance[1], direction)
                     if same_block is not None:
                         current_steps += 1
@@ -341,6 +433,7 @@ def get_direction_distance(x, y, matrix, direction):
     nearest_remote_point = find_nearest_remote_point(matrix, end_point[0], end_point[1], direction)
     return [nearest_remote_point[0] - end_point[0], nearest_remote_point[1] - end_point[1]]
 
+# 在某一个方向上移动方块
 def try_move_block(matrix, x, y, dx, dy, direction):
     block = matrix[x][y]
 
@@ -475,7 +568,7 @@ def print_matrix(matrix, current_steps, point1=None, point2=None):
 # 示例用法
 rows = 14  # 行数
 cols = 10  # 列数
-area = 0.82
+area = 0.8
 output_dir = 'output_tiles'  # 输出目录
 
 split_image(image_path, rows, cols, area, output_dir)
