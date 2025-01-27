@@ -355,6 +355,42 @@ print(result)
   [1 1 3 3 3 3 2 1 0]
   [1 1 3 3 3 3 2 1 0]]]
 '''
+# 攻击范围为，看示例图：
+'''
+        #
+      # o #
+      # o # # #
+    # o @ o o o #
+      # o # # #
+        #
+
+@ - 行动方块
+o - 可到达的位置，也可以攻击到
+# - 到达不了，但是可以攻击到的位置
+输入：行动方块位置；move_distance_map
+输出：2D攻击范围图（@和#）
+'''
+def find_all_pairs(mat:NDArray[np.int32], move_distance_map:NDArray[np.int32]):
+    for y in range(mat.shape[0]):
+        for x in range(mat.shape[1]):
+            if mat[x, y] == -1: continue
+
+
+# TODO: 测试这段代码
+def get_attack_map(x, y, move_distance_map:NDArray[np.int32]):
+    m = np.zeros_like(move_distance_map[0])
+    # 主要是利用切片操作，效率会更高。
+    # u,d,L,r，选中四个矩形区域+四个点（注意选中的这些可能会超出范围）
+    u = move_distance_map[0, y, x]; L = move_distance_map[1, y, x]
+    d = move_distance_map[2, y, x]; r = move_distance_map[3, y, x]
+    H, W = m.shape
+    m[y-u:y-1, max(x-1, 0) : min(x+1, W-1)] = 1; m[max(y-u-1, 0), x] = 1
+    m[y+1:y+d, max(x-1, 0) : min(x+1, W-1)] = 1; m[min(y+d+1, H-1), x] = 1
+    m[max(y-1, 0) : min(y+1, H-1), x-L:x-1] = 1; m[y, min(x-L-1, 0)] = 1
+    m[max(y-1, 0) : min(y+1, H-1), x+1:x+r] = 1; m[y, max(x+r+1, W-1)] = 1
+    return m
+
+
 
 # 消去两个方块的条件：
 # 1. 一个方块的上下左右有相同的方块
